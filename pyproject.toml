@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shiftformer"
-version = "0.2.0"
-description = "Transformation x normalization selection with Transformer denoising (v1)"
+version = "0.3.0"
+description = "Transformer denoise with log2(count+2) and a rule-chosen normalization (30-combination search optional)"
 requires-python = ">=3.9"
 dependencies = ["numpy", "pandas", "pyarrow", "scipy", "scikit-learn", "torch"]
 

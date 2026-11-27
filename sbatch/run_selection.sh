@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generic SLURM helper (no project-specific paths): 30 combinations as an array, then merge.
+# OPTIONAL (not the default workflow; see run_default.sh). Generic SLURM helper: 30 combinations as an array, then merge.
 # Usage: bash sbatch/run_selection.sh <train_raw_matrix> <test_dropout_matrix> <out_dir>
 set -euo pipefail
 TRAIN="$1"; TEST="$2"; OUT="$3"
