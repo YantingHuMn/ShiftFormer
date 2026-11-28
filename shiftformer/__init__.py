@@ -4,7 +4,7 @@ Default workflow:
     import shiftformer
     res = shiftformer.run(counts)            # raw count matrix (cells x genes)
     res.reconstructions["pearson"]; res.reconstructions["spearman"]; res.config; res.report
-    res.save("out_dir")                      # recon_pearson.feather, recon_spearman.feather, config.json, report.txt
+    res.save("out_dir")                      # {pearson,spearman}_reconstruct_trans_by_<trans>_norm_by_<N>.feather, config.json, report.txt
     shiftformer.choose_norm(counts)          # only the rule (which normalization would be used)
 
 Optional (not run by default): the 30-combination search

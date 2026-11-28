@@ -9,6 +9,8 @@ import os
 import sys
 
 from . import pipeline as PL
+from . import preprocess as P
+from . import rule as RULE
 from . import workflow as RUN
 
 
@@ -17,12 +19,14 @@ def main(argv=None):
                                  description="Transformer denoise with log2(count+2) and a rule-chosen normalization")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    r = sub.add_parser("run", help="default: denoise one raw count matrix; writes recon_pearson / recon_spearman")
+    r = sub.add_parser("run", help="default: denoise one raw count matrix; writes pearson_/spearman_reconstruct_trans_by_<trans>_norm_by_<N>.feather")
     r.add_argument("--input", required=True, help="raw count matrix file (cells x genes, first column = cell IDs)")
     r.add_argument("--out_dir", required=True,
-                   help="writes recon_pearson.feather, recon_spearman.feather, config.json, report.txt")
+                   help="writes pearson_/spearman_reconstruct_trans_by_<trans>_norm_by_<N>.feather, config.json, report.txt")
     r.add_argument("--reference", default=None, help="optional matrix of the same cells, used only for evaluation")
     r.add_argument("--orientation", default="cells_x_genes", choices=["cells_x_genes", "genes_x_cells"])
+    r.add_argument("--transformation", default=RULE.TRANSFORMATION, choices=P.TRANSFORMATIONS,
+                   help="transformation (default log2(count+2)); the norm rule was fitted for log2(count+2)")
     r.add_argument("--pearson_norm", default=None, help="override the rule (1000/10000/100000/1000000/no_norm)")
     r.add_argument("--spearman_norm", default=None, help="override the rule (default rule: 1000000)")
     r.add_argument("--no_clip", action="store_true", help="keep negative values after the inverse transformation")
@@ -56,7 +60,7 @@ def main(argv=None):
             RUN.run(a.input, reference=a.reference, out_dir=a.out_dir, orientation=a.orientation, seed=a.seed,
                     pearson_norm=a.pearson_norm, spearman_norm=a.spearman_norm, clip_negative=not a.no_clip,
                     save_dtype=a.save_dtype, save_model_space=a.save_model_space, device=a.device,
-                    threads=a.threads)
+                    threads=a.threads, transformation=a.transformation)
         except PL.StopForUser as e:
             _stop(a.out_dir, e)
         sys.exit(0)

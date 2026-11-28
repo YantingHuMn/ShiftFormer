@@ -3,9 +3,9 @@
     res = shiftformer.run(counts)                       # raw count matrix, cells x genes
     res.reconstructions["pearson"], res.reconstructions["spearman"]   # count-scale DataFrames
     res.config, res.report
-    res.save(out_dir)   # recon_pearson.feather, recon_spearman.feather, config.json, report.txt
+    res.save(out_dir)   # pearson_reconstruct_trans_by_<trans>_norm_by_<N>.feather, spearman_..., config.json, report.txt
 
-1. transformation fixed to log2(count+2)
+1. transformation: log2(count+2) by default (any of preprocess.TRANSFORMATIONS via transformation=)
 2. normalization chosen from the input alone (shiftformer.rule):
      pearson : log10 N = 2.048 + 0.781 * log10(median detected genes), snapped to 1e3..1e6/no_norm
      spearman: N = 1e6
@@ -28,6 +28,7 @@ import datetime as _dt
 import json
 import os
 import platform
+import re
 import time
 
 import numpy as np
@@ -42,6 +43,18 @@ from . import rule as RULE
 from .pipeline import DEFAULT_HP, StopForUser
 
 CRITERIA = ("pearson", "spearman")
+# characters kept in output file names; everything else (/ \ : * ? " < > | spaces, ...) -> "_"
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^0-9A-Za-z._+()-]")
+
+
+def safe_filename_part(s):
+    return _UNSAFE_FILENAME_CHARS.sub("_", str(s).strip())
+
+
+def output_filename(criterion, transformation, normalization):
+    """e.g. pearson_reconstruct_trans_by_log2(count+2)_norm_by_10000.feather"""
+    return (f"{criterion}_reconstruct_trans_by_{safe_filename_part(transformation)}"
+            f"_norm_by_{safe_filename_part(normalization)}.feather")
 
 
 def _now():
@@ -77,6 +90,8 @@ class RunResult:
                          f"{' (clipped to 0)' if c['clip_negative'] else ''}  file={o['file']}")
         if c["rule"]["pearson"].get("predicted_log10N") is not None:
             lines.append(f"pearson rule: predicted log10 N = {c['rule']['pearson']['predicted_log10N']:.3f}")
+        if c["rule"].get("note"):
+            lines.append(f"NOTE: {c['rule']['note']}")
         if self.evaluation is not None:
             lines.append("evaluation vs reference (mean gene-wise correlation; undefined -> 0):")
             lines.append(self.evaluation.to_string(index=False))
@@ -155,8 +170,9 @@ def train_one_norm(R, norm, trans, hp, device, seed, inner_val_frac, say=print):
 def run(counts, reference=None, out_dir=None, orientation="cells_x_genes", seed=42,
         pearson_norm=None, spearman_norm=None, clip_negative=True, save_dtype="float32",
         save_model_space=False, inner_val_frac=0.1, device="cpu", threads=None, hp=None,
-        verbose=True):
-    """Denoise `counts` with Transformer denoise, log2(count+2) and the rule-chosen normalization.
+        verbose=True, transformation=RULE.TRANSFORMATION):
+    """Denoise `counts` with Transformer denoise, a transformation (default log2(count+2)) and the
+    rule-chosen normalization.
 
     counts        : raw count matrix (no normalization / transformation). DataFrame (cells x genes;
                     cell IDs in the first non-numeric column, e.g. "pos", or the index), AnnData, or a
@@ -165,14 +181,21 @@ def run(counts, reference=None, out_dir=None, orientation="cells_x_genes", seed=
     out_dir       : if given, results are saved there (see RunResult.save).
     pearson_norm / spearman_norm : override the rule (one of 1000, 10000, 100000, 1000000, no_norm).
     clip_negative : clip negative values after the inverse transformation to 0 (default True).
-    save_model_space : also keep the raw model output (log2 space, float32), as written by the
+    save_model_space : also keep the raw model output (transformed space, float32), as written by the
                     original Step3 (reconstruct_trans_by_..._norm_by_....feather).
+    transformation: one of preprocess.TRANSFORMATIONS (no_trans, count+1, sqrt, sqrt+1, log2,
+                    log2(count+2)); used for the forward transform, the training loss and the inverse.
+                    The normalization rule was fitted for log2(count+2) only; with another
+                    transformation it is applied unchanged (noted in config/report), so passing
+                    pearson_norm / spearman_norm explicitly is recommended.
     device        : "cpu" (default; the original runs used CPU), "cuda" or "auto".
     threads       : torch CPU threads (the original runs used 1).
     hp            : override Transformer hyperparameters (default = original Transformer_denoise settings).
     """
     say = print if verbose else (lambda *a, **k: None)
-    trans = RULE.TRANSFORMATION
+    if transformation not in P.TRANSFORMATIONS:
+        raise ValueError(f"unsupported transformation {transformation!r}; choose one of {P.TRANSFORMATIONS}")
+    trans = transformation
     hp = {**DEFAULT_HP, **(hp or {}), "seed": seed}
     if save_dtype not in ("float32", "float64"):
         raise ValueError("save_dtype must be float32 or float64")
@@ -206,6 +229,10 @@ def run(counts, reference=None, out_dir=None, orientation="cells_x_genes", seed=
                 raise ValueError(f"{crit}_norm must be one of {RULE.NORM_OPTIONS}")
             choice[crit]["normalization"] = override
             sources[crit] = "user"
+    choice["transformation"] = trans
+    if trans != RULE.TRANSFORMATION and "rule" in sources.values():
+        choice["note"] = (f"the normalization rule was fitted for {RULE.TRANSFORMATION}; applied unchanged "
+                          f"with transformation {trans}")
     cfg["rule"] = choice
     say(f"[shiftformer] {R.shape[0]} cells x {R.shape[1]} genes; median detected genes="
         f"{choice['features']['median_detected_genes']:g}, median library size="
@@ -245,7 +272,7 @@ def run(counts, reference=None, out_dir=None, orientation="cells_x_genes", seed=
                                                and choice[c]["normalization"] == norm],
                          "n_negative_after_inverse": n_neg,
                          "frac_negative_after_inverse": n_neg / recon.size,
-                         "file": f"recon_{crit}.feather"}
+                         "file": output_filename(crit, trans, norm)}
     del trained
     cfg["outputs"] = outputs
 
